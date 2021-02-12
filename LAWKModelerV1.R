@@ -33,6 +33,8 @@ ChemInput$sampledate <- as.Date(ChemInput$sampledate,format="%Y-%m-%d")
 ChemInput$sampledate <- format(ChemInput$sampledate,format="%m/%d/%Y")
 #Create a unique sample identifier.
 ChemInput$UniqueID <- paste(ChemInput$stationcode,ChemInput$sampledate,ChemInput$fieldreplicate)
+#Add unit of measurement to the chemical analyte names
+ChemInput$analytename <- paste(ChemInput$analytename," (",ChemInput$unit,")",sep="")
 #Subset columns for downstream analysis.
 Chem <- ChemInput[,c("UniqueID","analytename","result")]
 #Get analyte names
