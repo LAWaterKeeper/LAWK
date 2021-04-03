@@ -10,6 +10,7 @@ require(gtools)
 require(ggplot2)
 require(viridis)
 require(cowplot)
+require(R.devices)
 
 #Set your own working directory, you're own private Idaho.
 setwd("/Users/levisimons/Desktop/Practicum/LAWK/")
@@ -57,6 +58,8 @@ AnalyteFreq[AnalyteFreq>0] <- 1
 AnalyteFreq <- as.data.frame(colSums(AnalyteFreq))
 colnames(AnalyteFreq) <- "freq"
 AnalyteFreq$analytename <- rownames(AnalyteFreq)
+#Remove analytes which are never mentioned in our merged Streams data set.
+AnalyteFreq <- AnalyteFreq[AnalyteFreq$freq > 0,]
 
 #Get watersheds, and the number of samples within each of them.
 Watersheds <- as.data.frame(table(Streams$smcshed))
@@ -78,7 +81,7 @@ RFEvaluationTotal <- data.frame()
 RFImportanceTotal <- data.frame()
 RFPartialPlotsTotal <- data.frame()
 set.seed(1)
-sampleNum <- 120
+sampleNum <- 180
 LoopNum <- 1000
 for(i in 1:LoopNum){
   StreamsSubset <- Streams[sample(nrow(Streams),sampleNum),]
@@ -107,7 +110,7 @@ for(i in 1:LoopNum){
   RFImportanceTotal <- rbind(RFImportanceTotal,RFImportance)
   #Create the data frame to store the partial response plot source data.
   RFPartialPlots <- data.frame(matrix(ncol=1,nrow=nrow(StreamsTrain)))
-  for(modelVar in dplyr::top_n(RFImportance,10,IncNodePurity)$names){
+  for(modelVar in dplyr::top_n(RFImportance,9,IncNodePurity)$names){
     tmp <-  as.data.frame(partialPlot(rf1,StreamsTrain,x.var=c(modelVar),plot=FALSE))
     colnames(tmp) <- c(modelVar,paste("CSCI",modelVar))
     RFPartialPlots <- plyr::rbind.fill(RFPartialPlots,tmp)
@@ -117,6 +120,9 @@ for(i in 1:LoopNum){
   }
   RFPartialPlotsTotal <- plyr::rbind.fill(RFPartialPlotsTotal,RFPartialPlots)
 }
+
+#Coerce character columns to factor.
+RFPartialPlotsTotal <- RFPartialPlotsTotal %>% mutate(across(where(is.character), as.factor))
 
 #Generate summary statistics for how well our random forest models perform on a per watershed basis.
 #Filter out random forest evaluations which are not significant.
@@ -133,7 +139,7 @@ colnames(RFImportanceTotal) <- c("Variable","MeanIncNodePurity","SDIncNodePurity
 #Save relative variable importance values.
 write.table(RFImportanceTotal,paste("RFImportance",LoopNum,"Iterations",sampleNum,"Samples.txt",sep=""),quote=FALSE,sep="\t",row.names = FALSE)
 #Select the most important RF model variables.
-ImportantVars <- dplyr::top_n(RFImportanceTotal,10,MeanIncNodePurity)$Variable
+ImportantVars <- dplyr::top_n(RFImportanceTotal,9,MeanIncNodePurity)$Variable
 #Generate partial dependence plots for the RF model against the most important variables.
 i=1
 for(modelVar in ImportantVars){
@@ -142,10 +148,13 @@ for(modelVar in ImportantVars){
   RFTotal <- RFPartialPlotsTotal[,modelVar==names(RFPartialPlotsTotal) | paste("CSCI ",modelVar,sep="")==names(RFPartialPlotsTotal)]
   #Remove empty rows.
   RFTotal <- RFTotal[complete.cases(RFTotal),]
-  #Create a boxplot for categorical model variables.
+  #Coerce character columns to factor.
+  RFTotal <- RFTotal %>% dplyr::mutate(across(where(is.character), as.factor))
+  #Create a violinplot for categorical model variables.
+  print(paste(modelVar,"Factor:",sum(sapply(RFTotal,is.factor)),"Numeric:",sum(sapply(RFTotal,is.numeric)),"Character:",sum(sapply(RFTotal,is.character))))
   if(is.factor(RFTotal[,1])){
     RFPlot <- ggplot(RFTotal, aes_string(x=colnames(RFTotal)[1],y=as.name(colnames(RFTotal)[2])))+
-      geom_boxplot(notch=FALSE)+
+      geom_violin(na.rm=T)+
       xlab(colnames(RFTotal)[1])+ylab("CSCI")+
       theme_bw(base_size=25)+theme(axis.text.x = element_text(angle = 15, size=15))
     assign(paste("RFPlot",LoopNum,"Iterations",sampleNum,"SamplesPanel",i,sep=""),RFPlot)
@@ -164,5 +173,4 @@ for(modelVar in ImportantVars){
 RFPlotList <- ls(pattern="RFPlot(.*?)Iterations(.*?)SamplesPanel(.*?)")
 #Output the list of plots as pdfs.
 RFPlotsTotal <- mget(RFPlotList)
-invisible(mapply(ggsave, file=paste0(names(RFPlotsTotal), ".pdf"), plot=RFPlotsTotal))
-###
+invisible(mapply(ggsave, file=paste0(names(RFPlotsTotal), ".pdf"), plot=RFPlotsTotal, width=10,height=10,units="in"))
